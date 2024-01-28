@@ -3,7 +3,6 @@ package com.example.cocoapodsconflict
 //import ImSDK_Plus.V2TIM_GET_CLOUD_OLDER_MSG
 import kotlinx.cinterop.ExperimentalForeignApi
 import platform.Foundation.NSString
-import platform.Foundation.stringWithUTF8String
 import platform.UIKit.UIDevice
 
 class IOSPlatform : Platform {

@@ -1,8 +1,9 @@
 import SwiftUI
 import shared
-// import ImSDK_Plus
+//import ImSDK_Plus
+
 struct ContentView: View {
-	let greet = Greeting().greet()
+ 	let greet = Greeting().greet() //<<<== pod xcframework will break kotlin impl
 
 	var body: some View {
 		Text("123") //greet

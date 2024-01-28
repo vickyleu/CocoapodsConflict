@@ -23,7 +23,7 @@ kotlin {
             }
         }
     }
-    iosX64()
+//    iosX64()
     iosArm64()
     iosSimulatorArm64()
 
@@ -31,7 +31,7 @@ kotlin {
         common {
             group("mobile") {
                 withIos()
-                withIosX64()
+//                withIosX64()
                 withIosSimulatorArm64()
                 withAndroidTarget()
             }
@@ -104,8 +104,7 @@ tasks.withType<PodGenTask>().configureEach {
             val builder = CocoapodsAppender.Builder(this)
             // modify dependencies deployment target
             builder.deploymentTarget(podGen)
-//                .rewriteSymroot(project.layout.buildDirectory.get().asFile,
-//                    projectDir)
+
                 .build()
         }
     }
@@ -114,7 +113,7 @@ tasks.withType<PodInstallTask>().configureEach {
     val podInstallTask = this
     doLast {
         podInstallTask.podspec.get().apply {
-            println("PodInstallTask podspec path $this")
+//            println("PodInstallTask podspec path $this")
         }
     }
 }
@@ -130,18 +129,26 @@ tasks.withType<PodspecTask>().configureEach {
         .relinkPodspec()
         .withClosure { podBuilder ->
             if (taskBuilder.isBuildDirChanged) {
-                podBuilder.relinkGradle(project.projectDir,taskBuilder.podSpecDir)
+                podBuilder.relinkGradle(project.projectDir, taskBuilder.podSpecDir)
+                   /* .excludeArch(listOf("x86_64", "i386"), rollback = !taskBuilder.isBuildDirChanged,
+                        isPodspecType = true
+                    )*/ // not work
             }
         }
         .build()
 
-    val builder = CocoapodsAppender.Builder(rootDir.resolve("iosApp/Podfile"))
-    builder.rewriteSymroot(project.layout.buildDirectory.get().asFile,projectDir,rollback= !taskBuilder.isBuildDirChanged)
-    builder.sharedPodRelink(
-        taskBuilder.podSpecDir,
-        !taskBuilder.isBuildDirChanged
-    )?.apply {
-        build()
-    }
+    CocoapodsAppender.Builder(rootDir.resolve("iosApp/Podfile"))
+//        .excludeArch(listOf("x86_64", "i386"), rollback = !taskBuilder.isBuildDirChanged) // not work
+        .rewriteSymroot(
+            project.layout.buildDirectory.get().asFile,
+            projectDir,
+            rollback = !taskBuilder.isBuildDirChanged
+        )
+        .sharedPodRelink(
+            taskBuilder.podSpecDir,
+            !taskBuilder.isBuildDirChanged
+        )?.apply {
+            build()
+        }
 
 }

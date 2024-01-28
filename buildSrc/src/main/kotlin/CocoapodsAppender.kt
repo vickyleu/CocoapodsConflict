@@ -183,16 +183,60 @@ class CocoapodsAppender private constructor() {
                 """.trimIndent()
                 .replaceIndent(indent)
             return appendInWholeSyntheticPodfile(content)
-                .appendOrCreate("if config.base_configuration_reference",
+                .appendOrCreate(
+                    "if config.base_configuration_reference",
                     """
                  config.build_settings.delete 'IPHONEOS_DEPLOYMENT_TARGET'
                  config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = "$deploymentTarget"
                 """.trimIndent().prependIndent("  "),
                     indent = indent,
                     begin = "if config.base_configuration_reference",
-                    end="end",
-                    func=::appendInWholeSyntheticPodfile)
+                    end = "end",
+                    func = ::appendInWholeSyntheticPodfile
+                )
+        }
 
+        fun excludeArch(archs: List<String>, rollback: Boolean,isPodspecType:Boolean=false): Builder {
+            val indent = "      "
+            if(isPodspecType){
+                if(isExist("'EXCLUDED_ARCHS[sdk=iphonesimulator*]' =>")){
+                    remove("'EXCLUDED_ARCHS[sdk=iphonesimulator*]' =>")
+                }
+                if (rollback) {
+                    return this
+                }
+                return appendOrCreate(
+                    "spec.pod_target_xcconfig = {",
+                    """
+                    'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => '${archs.joinToString(" ")}',
+                    """.trimIndent().prependIndent("   "),
+                    indent = indent,
+                    begin = "spec.pod_target_xcconfig = {",
+                    end = "}",
+                    func = ::appendInWholeSyntheticPodfile
+                )
+            }else{
+                if (isExist("config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]']")) {
+                    remove("config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]']")
+                }
+                if (rollback) {
+                    return this
+                }
+                return appendOrCreate(
+                    "if config.base_configuration_reference",
+                    """
+                 config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = "${
+                        archs.joinToString(
+                            " "
+                        )
+                    }"
+                """.trimIndent().prependIndent("  "),
+                    indent = indent,
+                    begin = "if config.base_configuration_reference",
+                    end = "end",
+                    func = ::appendInWholeSyntheticPodfile
+                )
+            }
         }
 
         fun relinkGradle(projectDir: File, podSpecDir: File): Builder {
@@ -219,9 +263,9 @@ class CocoapodsAppender private constructor() {
             if (index >= 0) {
                 return replace(searchBy, replaceBy)
             } else {
-                val index = lines.indexOfFirst { it.contains("pod 'shared'") }
-                if (index >= 0) {
-                    return replace(index, replaceBy)
+                val index2 = lines.indexOfFirst { it.contains("pod 'shared'") }
+                if (index2 >= 0) {
+                    return replace(index2, replaceBy)
                 }
             }
             return null
@@ -233,30 +277,35 @@ class CocoapodsAppender private constructor() {
          * Because I see a build folder in the same level parent folder of the Pods folder in xcode, but in fact this folder is not created
          *
          */
-        fun rewriteSymroot(buildDir: File, projectDir: File, rollback: Boolean=false): Builder {
+        fun rewriteSymroot(buildDir: File, projectDir: File, rollback: Boolean = false): Builder {
             val shouldChangePodspecDir =
                 !(buildDir.parentFile.absolutePath == projectDir.absolutePath)
             val isBuildDirChanged = shouldChangePodspecDir
 
-            if(isBuildDirChanged){
-                val relative = buildDir.relativeTo(projectDir.parentFile.resolve("iosApp/Pods/")).path
-                if(!isExist("ENV['PODS_BUILD_DIR']")){
-                    append("post_install do |installer|", """
-                    ENV['PODS_BUILD_DIR'] = "${'$'}(SRCROOT)/$relative/ios"
-                    ENV['SYMROOT'] = "${'$'}(SRCROOT)/$relative/ios"
-                """.trimIndent().prependIndent("  ")) //
-                    appendOrCreate("if config.base_configuration_reference",
-                        """
-                 config.build_settings['PODS_BUILD_DIR'] = ENV['PODS_BUILD_DIR']
-                 config.build_settings['SYMROOT'] = ENV['SYMROOT']
-                """.trimIndent().prependIndent("   "),indent = "      ",begin = "if config.base_configuration_reference",end="end",
-                        func=::appendInWholeSyntheticPodfile)
+            if (isBuildDirChanged) {
+                var relativeFile =
+                    buildDir.relativeTo(projectDir.parentFile.resolve("iosApp/Pods/"))
+                if (relativeFile.parentFile.name == "build") {
+                    relativeFile = relativeFile.parentFile
                 }
-            }else {
-                if(rollback){
-                    remove("ENV['PODS_BUILD_DIR']")
-                    remove("config.build_settings['SYMROOT']")
+                val relative = relativeFile.path
+                if (!isExist("config.build_settings['PODS_BUILD_DIR']")) {
+                    appendOrCreate(
+                        "if config.base_configuration_reference",
+                        """
+                 config.build_settings['PODS_BUILD_DIR'] = "${'$'}(SRCROOT)/$relative/ios"
+                 config.build_settings['SYMROOT'] = "${'$'}(SRCROOT)/$relative/ios"
+                """.trimIndent().prependIndent("   "),
+                        indent = "      ",
+                        begin = "if config.base_configuration_reference",
+                        end = "end",
+                        func = ::appendInWholeSyntheticPodfile
+                    )
+                }
+            } else {
+                if (rollback) {
                     remove("config.build_settings['PODS_BUILD_DIR']")
+                    remove("config.build_settings['SYMROOT']")
                 }
             }
             return this
@@ -272,6 +321,7 @@ class CocoapodsAppender private constructor() {
                 lines = lines.joinToString("\n").lines().toMutableList()
             }
         }
+
         @SuppressWarnings
         fun isExist(searchBy: String): Boolean {
             val index = lines.indexOfFirst {
@@ -292,16 +342,18 @@ class CocoapodsAppender private constructor() {
             val index = lines.indexOfFirst {
                 it.contains(searchBy)
             }
-            if(index>=0){
+            if (index >= 0) {
                 lines.add(index + 1, appendText.prependIndent(indent))
                 lines = lines.joinToString("\n").lines().toMutableList()
-            }else{
+            } else {
                 val newLines = mutableListOf<String>()
                 newLines.add(begin)
                 newLines.add(appendText)
                 newLines.add(end)
-                func.invoke(newLines.joinToString("\n")
-                    .prependIndent(indent))
+                func.invoke(
+                    newLines.joinToString("\n")
+                        .prependIndent(indent)
+                )
             }
             return this
         }
