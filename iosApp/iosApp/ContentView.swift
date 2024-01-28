@@ -6,7 +6,7 @@ struct ContentView: View {
  	let greet = Greeting().greet() //<<<== pod xcframework will break kotlin impl
 
 	var body: some View {
-		Text("123") //greet
+		Text(greet) //
         
 	}
 }
