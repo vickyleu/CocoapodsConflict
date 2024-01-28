@@ -377,7 +377,7 @@ class CocoapodsAppender private constructor() {
         val podSpecDir: File
             get() {
                 if (isBuildDirChanged) {
-                    return calculatePodspecDirectory(projectDir, buildDir)
+                    return calculateCommonDirectory(projectDir, buildDir)
                 } else {
                     return projectDir
                 }
@@ -463,7 +463,7 @@ class CocoapodsAppender private constructor() {
     }
 }
 
-fun calculatePodspecDirectory(projectDirFile: File, buildDirFile: File): File {
+fun calculateCommonDirectory(projectDirFile: File, buildDirFile: File): File {
     val absoluteProjectDir = projectDirFile.absoluteFile
     val absoluteBuildDir = buildDirFile.absoluteFile
     val projectComponents =

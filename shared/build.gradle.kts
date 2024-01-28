@@ -14,6 +14,9 @@ java {
         languageVersion.set(JavaLanguageVersion.of(libs.versions.jdk.get()))
     }
 }
+
+val useXCFramework: String by properties
+
 kotlin {
     jvmToolchain(libs.versions.jdk.get().toInt())
     androidTarget {
@@ -23,16 +26,21 @@ kotlin {
             }
         }
     }
-//    iosX64()
+    if (useXCFramework.toBooleanStrict()) {
+        iosX64()
+        iosSimulatorArm64()
+    }
     iosArm64()
-    iosSimulatorArm64()
+
 
     applyDefaultHierarchyTemplate {
         common {
             group("mobile") {
                 withIos()
-//                withIosX64()
-                withIosSimulatorArm64()
+                if (useXCFramework.toBooleanStrict()) {
+                    withIosX64()
+                    withIosSimulatorArm64()
+                }
                 withAndroidTarget()
             }
         }
@@ -64,7 +72,13 @@ kotlin {
          *
          * remove the pod every thing is ok
          */
-        pod("TXIMSDK_Plus_iOS_XCFramework") {
+        // TODO
+        //TODO  😭😭😭 TXIMSDK_Plus_iOS 😭😭😭
+        //  and
+        //TODO  😭😭😭  TXIMSDK_Plus_iOS_XCFramework 😭😭😭
+        //  only work for ios
+        
+        pod("TXIMSDK_Plus_iOS${if (useXCFramework.toBooleanStrict()) "_XCFramework" else ""}") {
             version = "7.6.5021"
             packageName = "ImSDK_Plus"
             moduleName = "ImSDK_Plus"
@@ -73,6 +87,7 @@ kotlin {
                 "-verbose"
             )
         }
+
     }
     sourceSets {
         commonMain.dependencies {
@@ -83,6 +98,7 @@ kotlin {
         }
     }
 }
+
 
 android {
     namespace = "com.example.cocoapodsconflict"
@@ -96,6 +112,8 @@ kotlin.targets.withType(org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarge
         binaryOptions["memoryModel"] = "experimental"
     }
 }
+
+
 
 tasks.withType<PodGenTask>().configureEach {
     val podGen = this
@@ -130,9 +148,9 @@ tasks.withType<PodspecTask>().configureEach {
         .withClosure { podBuilder ->
             if (taskBuilder.isBuildDirChanged) {
                 podBuilder.relinkGradle(project.projectDir, taskBuilder.podSpecDir)
-                   /* .excludeArch(listOf("x86_64", "i386"), rollback = !taskBuilder.isBuildDirChanged,
-                        isPodspecType = true
-                    )*/ // not work
+                /* .excludeArch(listOf("x86_64", "i386"), rollback = !taskBuilder.isBuildDirChanged,
+                     isPodspecType = true
+                 )*/ // not work
             }
         }
         .build()
