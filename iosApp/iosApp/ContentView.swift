@@ -1,11 +1,12 @@
 import SwiftUI
 import shared
-
+// import ImSDK_Plus
 struct ContentView: View {
 	let greet = Greeting().greet()
 
 	var body: some View {
-		Text(greet)
+		Text("123") //greet
+        
 	}
 }
 

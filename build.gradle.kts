@@ -31,6 +31,7 @@ allprojects {
 
 tasks.register("clean", Delete::class) {
     delete(rootProject.layout.buildDirectory.get().asFile)
+    delete(rootProject.file("buildSrc/.gradle/"))
     rootProject.layout.projectDirectory.asFile.apply {
         delete(resolve("iosApp/Pods"))
         delete(resolve("iosApp/iosApp.xcworkspace"))

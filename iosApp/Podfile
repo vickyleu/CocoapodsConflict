@@ -6,9 +6,13 @@ end
 
 
 post_install do |installer|
+  ENV['PODS_BUILD_DIR'] = "$(SRCROOT)/../../build/shared/ios"
+  ENV['SYMROOT'] = "$(SRCROOT)/../../build/shared/ios"
   installer.pods_project.targets.each do |target|
     target.build_configurations.each do |config|
        if config.base_configuration_reference
+         config.build_settings['PODS_BUILD_DIR'] = ENV['PODS_BUILD_DIR']
+         config.build_settings['SYMROOT'] = ENV['SYMROOT']
          config.build_settings.delete 'IPHONEOS_DEPLOYMENT_TARGET'
          config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = "16.0"
        end

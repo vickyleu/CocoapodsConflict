@@ -2,6 +2,7 @@ import org.gradle.api.Task
 import org.gradle.api.internal.provider.DefaultProperty
 import org.gradle.api.provider.Property
 import java.io.File
+import kotlin.reflect.KFunction1
 import kotlin.reflect.full.declaredMemberProperties
 
 class CocoapodsAppender private constructor() {
@@ -58,6 +59,7 @@ class CocoapodsAppender private constructor() {
         fun append(searchBy: String, appendText: String): Builder {
             val index = lines.indexOfFirst { it.contains(searchBy) }
             lines.add(index + 1, appendText)
+            lines = lines.joinToString("\n").lines().toMutableList()
             return this
         }
 
@@ -79,6 +81,7 @@ class CocoapodsAppender private constructor() {
             if (index >= 0) {
                 lines[index] = replaceText
             }
+            lines = lines.joinToString("\n").lines().toMutableList()
             return this
         }
 
@@ -87,12 +90,18 @@ class CocoapodsAppender private constructor() {
             if (index >= 0) {
                 lines[index] = replaceText
             }
+            lines = lines.joinToString("\n").lines().toMutableList()
             return this
         }
 
         /**
          * 检查xcode有没有安装Kotlin插件的,虽然不是必须的,但是我还是改成强制要求了,不能调试的代码没有意义
          * @return String 返回的字符串为植入到podspec中的代码,已处理好缩进
+         *
+         * english: Check if xcode has installed the Kotlin plugin. Although it is not necessary,
+         * I still changed it to a mandatory requirement.
+         * There is no point in code that cannot be debugged
+         * @return String The returned string is the code implanted in podspec, and the indentation has been processed
          */
         fun xcodeKotlinCheck(spec: Any): Builder {
             if (spec::class.simpleName != "PodspecTask_Decorated") {
@@ -163,35 +172,43 @@ class CocoapodsAppender private constructor() {
                 target
             }
             //   config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = ""
+//            config.build_settings['ONLY_ACTIVE_ARCH'] = 'YES'
+
+            val indent = "      "
             val content = """
-                if config.base_configuration_reference
-                  config.build_settings.delete 'IPHONEOS_DEPLOYMENT_TARGET'
-                  config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = "$deploymentTarget"
-                end
                 xcconfig_path = config.base_configuration_reference.real_path
                 xcconfig = File.read(xcconfig_path)
                 xcconfig_mod = xcconfig.gsub(/DT_TOOLCHAIN_DIR/, "TOOLCHAIN_DIR")
                 File.open(xcconfig_path, "w") { |file| file << xcconfig_mod }
                 """.trimIndent()
-                .replaceIndent("      ")
+                .replaceIndent(indent)
             return appendInWholeSyntheticPodfile(content)
+                .appendOrCreate("if config.base_configuration_reference",
+                    """
+                 config.build_settings.delete 'IPHONEOS_DEPLOYMENT_TARGET'
+                 config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = "$deploymentTarget"
+                """.trimIndent().prependIndent("  "),
+                    indent = indent,
+                    begin = "if config.base_configuration_reference",
+                    end="end",
+                    func=::appendInWholeSyntheticPodfile)
+
         }
 
-        fun relinkGradle(projectName: String): Builder {
+        fun relinkGradle(projectDir: File, podSpecDir: File): Builder {
+            val originDir =
+                File("${projectDir.parentFile.absolutePath}/iosApp/Pods/../../${projectDir.name}/")
+            val relativeTo = originDir.relativeTo(podSpecDir).path
             return replace(
-                "\"${"$"}REPO_ROOT/../gradlew\" -p \"${"$"}REPO_ROOT\" ${"$"}KOTLIN_PROJECT_PATH:syncFramework \\",
-                """
-                  echo "REPO_ROOT returns the directory above from the podspec file, then searches for the 'gradlew' file. If using the default path, it might navigate outside of the project directory, so it needs to be constrained within the directory where the podspec is located."
-                  echo "we also need change gradlew dir by ${"$"}REPO_ROOT"
-                  "${"$"}REPO_ROOT/gradlew" -p "${"$"}REPO_ROOT/$projectName" ${"$"}KOTLIN_PROJECT_PATH:syncFramework \
-                  """.trimIndent().prependIndent("                ")
+                "REPO_ROOT=\"${"$"}PODS_TARGET_SRCROOT\"",
+                "                REPO_ROOT=\"${"$"}PODS_TARGET_SRCROOT${if (relativeTo.isEmpty()) "" else "/$relativeTo"}\""
             )
         }
 
-        fun sharedPodRelink(rollback: Boolean = false): Builder? {
+        fun sharedPodRelink(podSpecDir: File, rollback: Boolean = false): Builder? {
             var searchBy = "  pod 'shared', :path => '../shared'"
-            var replaceBy = "  pod 'shared', :path => '../'"
-
+            val relative = "${podSpecDir.relativeTo(this.file.parentFile).path}/".replace("//", "/")
+            var replaceBy = "  pod 'shared', :path => '${relative}'"
             if (rollback) {
                 val old = searchBy
                 searchBy = replaceBy
@@ -209,6 +226,85 @@ class CocoapodsAppender private constructor() {
             }
             return null
         }
+
+        /**
+         * 中文: 我也不知道这个有没有意义,自定义pod的构建目录,因为查看xcode中在Pods目录的同级父目录中有一个build文件夹,但是实际上这个目录并没有创建
+         * english: I don't know if this makes sense. Customize the build directory of the pod.
+         * Because I see a build folder in the same level parent folder of the Pods folder in xcode, but in fact this folder is not created
+         *
+         */
+        fun rewriteSymroot(buildDir: File, projectDir: File, rollback: Boolean=false): Builder {
+            val shouldChangePodspecDir =
+                !(buildDir.parentFile.absolutePath == projectDir.absolutePath)
+            val isBuildDirChanged = shouldChangePodspecDir
+
+            if(isBuildDirChanged){
+                val relative = buildDir.relativeTo(projectDir.parentFile.resolve("iosApp/Pods/")).path
+                if(!isExist("ENV['PODS_BUILD_DIR']")){
+                    append("post_install do |installer|", """
+                    ENV['PODS_BUILD_DIR'] = "${'$'}(SRCROOT)/$relative/ios"
+                    ENV['SYMROOT'] = "${'$'}(SRCROOT)/$relative/ios"
+                """.trimIndent().prependIndent("  ")) //
+                    appendOrCreate("if config.base_configuration_reference",
+                        """
+                 config.build_settings['PODS_BUILD_DIR'] = ENV['PODS_BUILD_DIR']
+                 config.build_settings['SYMROOT'] = ENV['SYMROOT']
+                """.trimIndent().prependIndent("   "),indent = "      ",begin = "if config.base_configuration_reference",end="end",
+                        func=::appendInWholeSyntheticPodfile)
+                }
+            }else {
+                if(rollback){
+                    remove("ENV['PODS_BUILD_DIR']")
+                    remove("config.build_settings['SYMROOT']")
+                    remove("config.build_settings['PODS_BUILD_DIR']")
+                }
+            }
+            return this
+        }
+
+        @SuppressWarnings
+        fun remove(searchBy: String) {
+            val index = lines.indexOfFirst {
+                it.contains(searchBy)
+            }
+            if (index >= 0) {
+                lines.removeAt(index)
+                lines = lines.joinToString("\n").lines().toMutableList()
+            }
+        }
+        @SuppressWarnings
+        fun isExist(searchBy: String): Boolean {
+            val index = lines.indexOfFirst {
+                it.contains(searchBy)
+            }
+            return index >= 0
+        }
+
+        @SuppressWarnings
+        fun appendOrCreate(
+            searchBy: String,
+            appendText: String,
+            indent: String,
+            begin: String,
+            end: String,
+            func: KFunction1<String, Builder>
+        ): Builder {
+            val index = lines.indexOfFirst {
+                it.contains(searchBy)
+            }
+            if(index>=0){
+                lines.add(index + 1, appendText.prependIndent(indent))
+                lines = lines.joinToString("\n").lines().toMutableList()
+            }else{
+                val newLines = mutableListOf<String>()
+                newLines.add(begin)
+                newLines.add(appendText)
+                newLines.add(end)
+                func.invoke(newLines.joinToString("\n")
+                    .prependIndent(indent))
+            }
+            return this
+        }
     }
 
     class TaskBuilder(
@@ -224,6 +320,15 @@ class CocoapodsAppender private constructor() {
                 val shouldChangePodspecDir =
                     !(buildDir.parentFile.absolutePath == projectDir.absolutePath)
                 return shouldChangePodspecDir
+            }
+
+        val podSpecDir: File
+            get() {
+                if (isBuildDirChanged) {
+                    return calculatePodspecDirectory(projectDir, buildDir)
+                } else {
+                    return projectDir
+                }
             }
 
         fun relinkPodspec(): TaskBuilder {
@@ -243,7 +348,7 @@ class CocoapodsAppender private constructor() {
                                 old.absolutePath.endsWith("/cocoapods/publish/debug"))
                     ) {
                         oldOutputDir = old
-                        outputDir.set(old.parentFile)
+                        outputDir.set(podSpecDir)
                     } else {
                         ignoreDistributionDir = true
                     }
@@ -251,7 +356,8 @@ class CocoapodsAppender private constructor() {
                 task.doLast {
                     if (!ignoreDistributionDir && oldOutputDir != null) {
                         // 查找old目录中的podspec文件
-                        val podspecFile = oldOutputDir.listFiles()?.find { it.name.endsWith(".podspec") }
+                        val podspecFile =
+                            oldOutputDir.listFiles()?.find { it.name.endsWith(".podspec") }
                         podspecFile?.delete()
                     }
                     val outputFileCaller =
@@ -277,6 +383,15 @@ class CocoapodsAppender private constructor() {
                         // 查找old目录中的podspec文件
                         val podspecFile = old.listFiles()?.find { it.name.endsWith(".podspec") }
                         podspecFile?.delete()
+                        val current =
+                            old.resolve("${this@TaskBuilder.projectDir.name}/${this@TaskBuilder.projectDir.name}.podspec")
+                        podBuilder = CocoapodsAppender.Builder(current, true)
+                        if (::closure.isInitialized) {
+                            closure(podBuilder)
+                        }
+                        if (::buildExec.isInitialized) {
+                            buildExec()
+                        }
                     }
                 }
             }
@@ -294,4 +409,21 @@ class CocoapodsAppender private constructor() {
             }
         }
     }
+}
+
+fun calculatePodspecDirectory(projectDirFile: File, buildDirFile: File): File {
+    val absoluteProjectDir = projectDirFile.absoluteFile
+    val absoluteBuildDir = buildDirFile.absoluteFile
+    val projectComponents =
+        absoluteProjectDir.toPath().toAbsolutePath().iterator().asSequence().toList()
+    val buildComponents =
+        absoluteBuildDir.toPath().toAbsolutePath().iterator().asSequence().toList()
+    val commonComponents =
+        projectComponents.zip(buildComponents).takeWhile { (p, b) -> p == b }.map { it.first }
+    var str = commonComponents.joinToString(File.separator)
+    if (!str.startsWith(File.separator)) {
+        str = "${File.separator}$str"
+    }
+    val commonParentDir = File(str)
+    return commonParentDir
 }

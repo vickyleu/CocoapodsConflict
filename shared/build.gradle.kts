@@ -45,10 +45,11 @@ kotlin {
         podfile = project.file("../iosApp/Podfile")
         framework {
             baseName = "shared"
-            isStatic = true
+            isStatic = false
         }
         // todo
         /**
+         * only change buildDir will cause the following error
          * ld: warning: ignoring file 'CocoapodsConflict/build/shared/cocoapods/framework/shared.framework/shared[2](shared.framework.o)':
          * found architecture 'arm64', required architecture 'x86_64'
          * ld: Undefined symbols:
@@ -56,6 +57,12 @@ kotlin {
          *        in ContentView.o
          * clang: error: linker command failed with exit code 1 (use -v to see invocation)
          *
+         * modify the podspec file will cause the following error
+         * ld: warning: search path '/Github/CocoapodsConflict/build/ios/Debug-iphonesimulator/XCFrameworkIntermediates/TXIMSDK_Plus_iOS_XCFramework' not found
+         * ld: framework 'ImSDK_Plus' not found
+         * clang: error: linker command failed with exit code 1 (use -v to see invocation)
+         *
+         * remove the pod every thing is ok
          */
         pod("TXIMSDK_Plus_iOS_XCFramework") {
             version = "7.6.5021"
@@ -84,13 +91,22 @@ android {
         minSdk = 34
     }
 }
+kotlin.targets.withType(org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget::class.java) {
+    binaries.all {
+        binaryOptions["memoryModel"] = "experimental"
+    }
+}
+
 tasks.withType<PodGenTask>().configureEach {
     val podGen = this
     doLast {
         podfile.get().apply {
             val builder = CocoapodsAppender.Builder(this)
             // modify dependencies deployment target
-            builder.deploymentTarget(podGen).build()
+            builder.deploymentTarget(podGen)
+//                .rewriteSymroot(project.layout.buildDirectory.get().asFile,
+//                    projectDir)
+                .build()
         }
     }
 }
@@ -114,14 +130,17 @@ tasks.withType<PodspecTask>().configureEach {
         .relinkPodspec()
         .withClosure { podBuilder ->
             if (taskBuilder.isBuildDirChanged) {
-                podBuilder.relinkGradle(project.name)
+                podBuilder.relinkGradle(project.projectDir,taskBuilder.podSpecDir)
             }
         }
         .build()
 
     val builder = CocoapodsAppender.Builder(rootDir.resolve("iosApp/Podfile"))
-
-    builder.sharedPodRelink(!taskBuilder.isBuildDirChanged)?.apply {
+    builder.rewriteSymroot(project.layout.buildDirectory.get().asFile,projectDir,rollback= !taskBuilder.isBuildDirChanged)
+    builder.sharedPodRelink(
+        taskBuilder.podSpecDir,
+        !taskBuilder.isBuildDirChanged
+    )?.apply {
         build()
     }
 
